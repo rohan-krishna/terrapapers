@@ -7,13 +7,14 @@
  */
 
 import React from "react";
-import { StyleSheet, View, Text, Dimensions, Image, ActivityIndicator, Modal } from "react-native";
+import { StyleSheet, View, Text, Dimensions, Image, ActivityIndicator, Animated, PermissionsAndroid, CameraRoll, Vibration, Linking, Share } from "react-native";
 import axios from 'axios';
 import ProgressWrapper from "./components/ProgressWrapper";
 import WallpapersList from "./components/WallpapersList";
 import { Appbar, Button } from 'react-native-paper';
 
 const {height, width} = Dimensions.get('window');
+var RNFS = require('react-native-fs');
 
 class App extends React.Component {
 
@@ -22,15 +23,28 @@ class App extends React.Component {
     this.state = {
       isLoading: true,
       wallpapers: [],
-      infoModalvisible: false,
+      isImageFocused: false,
     }
 
-    this.unsplashApiURL = "https://api.unsplash.com/photos/random?client_id=c14632aed2433947ffa94b19b0bc8ce33d99db554f74fb178c864b527b409588&count=30";
+    this.unsplashApiURL = "https://api.unsplash.com/photos/random?client_id=c14632aed2433947ffa94b19b0bc8ce33d99db554f74fb178c864b527b409588&count=12";
+    this.moveAnimation = new Animated.ValueXY({ x: 0, y: -100 });
   }
 
-  setModalVisible = () => {
-    console.log("toggled")
-    this.setState({ infoModalvisible: true });
+  moveInfoWrapper = () => {
+
+    this.setState((state) => ({
+      isImageFocused: !this.state.isImageFocused
+    }), () => {
+      if(this.state.isImageFocused) {
+        Animated.spring(this.moveAnimation, {
+          toValue: {x: 0, y: 0}
+        }).start();
+      } else {
+        Animated.spring(this.moveAnimation, {
+          toValue: {x: 0, y: -150}
+        }).start();
+      }
+    });
   }
 
   dismissModal = () => {
@@ -39,6 +53,48 @@ class App extends React.Component {
 
   componentDidMount() {
     this.loadWallpapers();
+  }
+
+  saveToCameraRoll = async (image) => {
+    let cameraPermissions = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+      {
+        "title" : "Terrapapers External Storage Permission",
+        "message" : "We need external storage write access to store wallpapers."
+      }
+    )
+    
+
+    if(cameraPermissions) {
+      console.log("Camera Permission granted.")
+      // let cacheImagePath = RNFS.CachesDirectoryPath()
+      // var path = RNFS.DocumentDirectoryPath + image.id + '.jpg';
+      RNFS.downloadFile({
+        fromUrl : image.urls.regular,
+        toFile: `${RNFS.DocumentDirectoryPath}/${image.id}.jpg`
+      }).promise.then((r) => {
+        
+        CameraRoll.saveToCameraRoll(`file://${RNFS.DocumentDirectoryPath}/${image.id}.jpg`)
+        Vibration.vibrate();
+        
+        alert("Hurray! Wallpaper has been saved!");
+
+      }).catch(error => console.log(error));
+
+    } else {
+      console.log("Camera permissions denied")
+    }
+  }
+
+  // ANCHOR shareImage fun
+  shareImage = async (image) => {
+    try {
+      await Share.share({
+        message: "Checkout this wallpaper " + image.urls.full + "\n Shared from Terrapapers Wallpapers App."
+      });
+    } catch (error) {
+      console.log(error);
+    }
   }
 
   loadWallpapers = () => {
@@ -58,6 +114,11 @@ class App extends React.Component {
 
   // wallpaper list item
   renderWallpaperListItems = ({item}) => {
+
+    const userURL = item.user.links.html;
+    const photoURL = item.links.html;
+    const unsplashURL = "https://unsplash.com";
+
     return (
       <View style={{ flex: 1 }}>
         <View 
@@ -76,14 +137,18 @@ class App extends React.Component {
           
           <View style={{ width, height }}>
 
-            <Modal
-              animationType="slide"
-              transparent={true}
-              visible={this.state.infoModalvisible}
-              onRequestClose={() => this.dismissModal()}
-            >
-              <Text>Hello World!</Text>
-            </Modal>
+           {/* ANCHOR InformationWrapper */}
+            <Animated.View style={[styles.infoContentWrapper, this.moveAnimation.getLayout()]}>
+              <Text style={{ color: "white" }}>
+                {item.description ? item.description : item.alt_description}
+              </Text>
+              <Text style={{ color: "white", textDecorationLine: "underline", fontWeight: "bold" }} onPress={() => Linking.openURL(userURL)}>
+                Photo By: {item.user.name}
+              </Text>
+              <Text style={{ color: "white", textDecorationLine: "underline", fontWeight: "bold" }} onPress={() => Linking.openURL(unsplashURL)}>
+                Uploaded On: unsplash
+              </Text>
+            </Animated.View>
 
             <Image 
               style={{ flex: 1, height: null, width: null }}
@@ -91,9 +156,10 @@ class App extends React.Component {
               resizeMode="cover" />
 
               <Appbar style={styles.bottomAppbar}> 
-                <Appbar.Action icon="info" onPress={() => this.setModalVisible} />  
-                <Appbar.Action icon="save" onPress={() => console.log('Pressed mail')} />
-                <Appbar.Action icon="share" onPress={() => console.log('Pressed label')} /> 
+                <Appbar.Action icon="info" onPress={() => this.moveInfoWrapper()} />  
+                <Appbar.Action icon="save" onPress={() => this.saveToCameraRoll(item)} />
+                <Appbar.Action icon="share" onPress={() => this.shareImage(item)} /> 
+                <Appbar.Action icon="refresh" onPress={() => this.loadWallpapers()} /> 
               </Appbar>
           </View>
 
@@ -106,7 +172,7 @@ class App extends React.Component {
       <View style={{ width, height }}>
 
         {!this.state.isLoading ? (
-          <WallpapersList renderWallpaperListItems={this.renderWallpaperListItems} wallpapers={this.state.wallpapers} />
+          <WallpapersList renderWallpaperListItems={this.renderWallpaperListItems} wallpapers={this.state.wallpapers} isImageFocused={this.state.isImageFocused} />
         ) : (
           <View 
             style={{ 

@@ -9,6 +9,7 @@ export default class WallpapersList extends React.PureComponent {
             renderItem={this.props.renderWallpaperListItems}
             horizontal={true}
             pagingEnabled
+            scrollEnabled={!this.props.isImageFocused}
             keyExtractor={item => item.id}
         />)
     }
